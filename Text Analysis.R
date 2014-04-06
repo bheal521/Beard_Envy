@@ -3,8 +3,8 @@ library("wordcloud")
 library("tm")
 library("RColorBrewer")
 library("ggplot2")
-library("grep")
 library("SnowballC")
+library("sqldf")
 
 
 Pitch4k <- odbcConnect("Pitch4k", uid="admin", pwd="admin") 
@@ -75,25 +75,175 @@ pitch4k_rev_text <- Corpus(VectorSource(test$review))
 pitch4k_rev_text <- tm_map(pitch4k_rev_text, tolower) 
 pitch4k_rev_text <- tm_map(pitch4k_rev_text, removePunctuation)
 pitch4k_rev_text <- tm_map(pitch4k_rev_text, function(x) removeWords(x,stopwords("english")))
+# So... stemming real f-es everything up eh?
+#pitch4k_rev_text <- tm_map(pitch4k_rev_text, stemDocument)
 
 #list of other words to remove
-stop_words <- c("one", "since", "now", "also", "doesnt", "dont", "put", "get", "around", "just", "though", 
+stop_words <- c("actual", "albums",  "actually", "one", "since", "now", "also", "doesnt", "dont", "put", "get", "around", "just", "though", 
                 "thereds", "theyre", "called", "like", "ultimately", "hes", "come", "got", "goes", "gets", "youre", "side",
-                "didnt", "let", "may", "thats")
+                "didnt", "let", "may", "thats", "almost", "along", "also", "alway", "made", "actually",  "along", "already", 
+                "also", "always", "another", "anything", "around",   "away",  "back", "bands", "beats", "behind",
+                "can", "cant", "come", "comes", "didnt", "doesnt", "dont", "drums", "either", "enough", "especially",
+                "even", "ever", "every", "everything", "feels", "get", "gets", "give", "goes", "going", "got", "guitars",
+                "hes", "however", "instead", "isnt", "just", "keep", "know", "later", "left", "let", "like", "lines", "lot",
+                "made", "make", "makes", "making", "man", "many", "may", "maybe", "melody", "might", "moment", "mostly", 
+                "much", "nearly", "need", "nothing", "now", "perhaps", "playing", "probably", "put", "quite", "rather",
+                "really", "records", "released", "say", "second", "see", "seem", "seems", "side", "since", "someone", 
+                "something", "sometimes", "songs", "sort", "sounds", "take", "takes", "thats", "theres", "theyre", "theyve",
+                "thing", "things", "though", "times", "vocals", "way", "whether", "whose", "will", "without", "words", "works",
+                "years", "said", "used", "arent", "shows", "came", "certainly", "getting", "sure", "else", "played", "plays", "coming",
+                "use", "john", "ways", "shes", "within", "ones", "several", "whats", "gives", "likely", "particularly", "guy", "guys", 
+                "taking", "certain", "still")
 pitch4k_rev_text <- tm_map(pitch4k_rev_text, function(x) removeWords(x,stop_words))
-pitch4k_rev_text <- tm_map(pitch4k_rev_text, stemDocument)
+
+
+## Check the document term matrix for words that you want to get rid of
+dtm <- DocumentTermMatrix(pitch4k_rev_text)
+
+# Take a peek at the high freq words that will be in wordcloud, if any should be removed, add to list above and re-run the stripping of
+## stop words
+findFreqTerms(dtm, lowfreq=800)
 
 
 
-pal2 <- brewer.pal(8,"Dark2")
+
+
+
+pal2 <- brewer.pal(3,"Dark2")
 
 #
 #p4.tdm=TermDocumentMatrix(pitch4k_rev_text)
 #p4.m=as.matrix(p4.tdm)
 #p4.v=sort(rowSums(p4.m),decreasing=TRUE)
 
-png("C:/users/ben/documents/github/Beard_Envy/output/Reviews_WrdCld.png", width=12,height=8, units='in', res=300)
-wordcloud(pitch4k_rev_text, max.words=250, random.color=TRUE, colors=pal2, scale=c(4.5,.2))
+
+
+png("C:/users/ben/documents/github/Beard_Envy/output/Reviews_WrdCld.png", width=12,height=8, units='in', res=350)
+wordcloud(pitch4k_rev_text, max.words=250, random.color=TRUE, colors=pal2, scale=c(5,.5))
 dev.off()
 
+## Method below doesn't allow for choosing the resulution like above, but does allow for preview
+wrd_cld <- wordcloud(pitch4k_rev_text, max.words=250, random.color=TRUE, colors=pal2, scale=c(4.5,.2))
 ggsave("C:/users/ben/documents/github/Beard_Envy/output/Reviews_WrdCld.png", wrd_cld, width=8, height=8, units="in")
+
+
+
+
+### Look at bands with 5+ reviews and observe change in score
+
+sql <- paste("select artist, album, score, date_of_review from ReviewContent") 
+album_scores <- sqlQuery(Pitch4k, sql, error=TRUE)
+
+
+moar_albums <- sqldf("select artist, count(album) as albums, avg(score) as avg_score from album_scores group by artist")
+
+most_albums <- moar_albums[moar_albums$albums>=5,]
+most_scores <- album_scores[album_scores$artis %in% most_albums$artist, ]
+
+## Look at the relationship between the number of albums reviewed and the average score
+num.albs.score <- sqldf("select albums, avg(avg_score) as avg_score from moar_albums group by albums")
+
+#get rid of the "various artist" 
+num.albs.score <- num.albs.score[num.albs.score$albums < 100,]
+
+#plot the results
+avg.by.reviews <- ggplot(data=num.albs.score, aes(x=albums, y=avg_score)) + geom_bar(stat="identity") +
+  scale_y_continuous(limits = c(0, 10), breaks=0:10, name="Average Score") +
+  scale_x_discrete(name="Number of Albums Reviewed") +
+  theme(axis.title.x = element_text(face="bold", size=20), axis.title.y = element_text(face="bold", size=20))
+
+
+# scatter plot of individual bands by number of albums reviewd and their avg score
+#First need to get rid of the "Various Artists" row which f-es everything up
+moar_albums <- moar_albums[moar_albums$albums<200,]
+test <- moar_albums[moar_albums$albums>1,]
+
+## can use the 'test' or 'moar_albums' dataframe below and get similar result.
+ggplot(data=moar_albums, aes(x=albums, y=avg_score)) +  geom_point(shape="a") +
+  geom_smooth(method=lm) +
+  scale_y_continuous(limits = c(0, 10), breaks=0:10, name="Average Score") +
+  scale_x_discrete(name="Number of Albums Reviewed") +
+  theme(axis.title.x = element_text(face="bold", size=20), axis.title.y = element_text(face="bold", size=20))
+
+
+## Order the albums in in order to plot the change in an albums first through last
+ordered <- sqldf("select a.*, b.albums as num_albs from album_scores as a left join moar_albums as b on a.artist=b.artist order by artist")
+
+#Get rid of the 'Various Artists'
+ordered <- ordered[ordered$artist!="Various Artists",]
+ordered$alb_num <- "1"
+ordered <- as.matrix(ordered)
+
+a=1
+for (x in 1:(nrow(ordered)-1)){
+  if(a==1){
+    ordered[x,6] <- "1"
+  }
+  else {
+   ordered[x,6]<- as.character(as.numeric((ordered[(x-1),6])) + 1) 
+  }
+  
+  if(ordered[x,1]==ordered[(x+1),1]) {
+    a <- a+1
+  }
+  else {
+    a <- 1
+  }
+}
+
+## Convert that matrix back to a data frame
+ordered <- as.data.frame(ordered)
+
+
+## The number of albums is currently a string so need to factor and order
+#ordered$alb_num <- factor(ordered$alb_num, levels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"), ordered=TRUE)
+ordered$alb_num <- as.numeric(levels(ordered$alb_num))[ordered$alb_num]
+ordered$score <- as.numeric(levels(ordered$score))[ordered$score]
+ordered$num_albs <- as.numeric(levels(ordered$num_albs))[ordered$num_albs]
+
+## create a color scheme for # albums reviewed
+ordered$color <- ifelse(ordered$num_albs==1, 1, ifelse(ordered$num_albs<=5,2, ifelse(ordered$num_albs<=10, 3, ifelse(ordered$num_albs<=15, 4, 5))))
+
+## create another layer that shows just the average
+avg <- sqldf("select alb_num, avg(score) as avg_score from ordered group by alb_num")
+avg$alb_num <- as.numeric(levels(avg$alb_num))[avg$alb_num]
+
+##plot the # album from a band against its score and overlay the average points
+improving <- ggplot(data=ordered, aes(x=alb_num, y=score)) + geom_point(shape=10, size=2) +
+  #stat_smooth(method = "lm", formula = y ~ poly(x,2), size = 1) +
+  geom_point(data=avg, mapping=aes(x=alb_num, y=avg_score), color="blue", size=5) +
+  scale_y_continuous(limits = c(0, 10), breaks=0:10, name="Album Score") +
+  scale_x_discrete(name="Band's Reviewed Album Number") +
+  theme(axis.title.x = element_text(face="bold", size=20), axis.title.y = element_text(face="bold", size=20))
+
+ggsave("C:/users/ben/documents/github/Beard_Envy/output/pitchfork_bias.png", improving, width=10, height=7, units="in")
+
+## Model
+mod <- lm(ordered$alb_num ~ ordered$score)
+head(fortify(mod))
+
+
+## Take a peek at the most reviewed bands
+freq.bands <- paste("select artist, count(album) as Albums_Reviewed, avg(score) as avg_score, 
+                    avg(char_length(convert(editorial USING utf8)) - char_length(REPLACE(convert(editorial USING utf8), ' ', '')) + 1) as Avg_review_length
+                    from ReviewContent
+                    group by artist")
+
+freq.bands <- sqlQuery(Pitch4k, freq.bands, error=TRUE)
+
+#get rid of the various artists
+freq.bands <- freq.bands[freq.bands$artist!="Various Artists",]
+freq.bands$color <- ifelse(freq.bands$Albums_Reviewed<6, 1, ifelse(freq.bands$Albums_Reviewed<=7,2, ifelse(freq.bands$Albums_Reviewed<=8, 3, ifelse(freq.bands$Albums_Reviewed<=9, 4, 5))))
+
+
+score.vs.length <- ggplot(data=freq.bands, aes(x=avg_score, y=Avg_review_length)) + geom_point(shape="a") +
+  stat_smooth(method = "lm", formula = y ~ poly(x,4), size = 1) +
+  scale_y_continuous(limits = c(0, 2750), breaks=c(0, 500, 1000, 1500, 2000, 2500), name="Average Review Word Count") +
+  scale_x_continuous(breaks=c(1:10), name="Average Review Score") +
+  theme(axis.title.x = element_text(face="bold", size=20), axis.title.y = element_text(face="bold", size=20))
+
+ggsave("C:/users/ben/documents/github/Beard_Envy/output/pitchfork_scoreVSlength.png", score.vs.length, width=10, height=7, units="in")
+
+mod <- lm(freq.bands$avg_score ~ poly(freq.bands$Avg_review_length, 4))
+summary(mod)
+
