@@ -20,7 +20,8 @@ def pitchRevLinks(page_num):
 link_db = []
 
 ## Set this up to run through however many pages you're interested in, will fetch link
-for x in range(1,500):
+## Currently there are 809 pages of links
+for x in range(1,809):
 	link_db = link_db + pitchRevLinks(x)
 
 ## Need to write code that will take the list of links and store in DB, also with current status of whether or 
